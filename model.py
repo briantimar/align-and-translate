@@ -5,7 +5,7 @@ import torch.nn as nn
 class EncoderCell(nn.Module):
     """ Gated recurrent unit"""
 
-    def __init__(self, input_size, hidden_size):
+    def __init__(self, input_size, hidden_size, dtype=torch.float):
         """input_size: int, dimensionality of the input vectors.
             hidden_size: int, dim of the hidden vectors.
         """
@@ -13,21 +13,26 @@ class EncoderCell(nn.Module):
 
         self.input_size = input_size
         self.hidden_size = hidden_size
+        self.dtype = dtype
+        
+        def make(*shape):
+            return nn.Parameter(torch.Tensor(*shape).to(dtype=self.dtype))
 
         #embedding matrices, of shape (hidden_size, input_size)
-        self.Wh = nn.Parameter(torch.Tensor(self.hidden_size, self.input_size))
-        self.Wz = nn.Parameter(torch.Tensor(self.hidden_size, self.input_size))
-        self.Wr = nn.Parameter(torch.Tensor(self.hidden_size, self.input_size))
+        self.Wh = make(self.hidden_size, self.input_size)
+        self.Wz = make(self.hidden_size, self.input_size)
+        self.Wr = make(self.hidden_size, self.input_size)
 
         #update matrices, of shape (hidden size, hiddenn size)
-        self.Uh = nn.Parameter(torch.Tensor(self.hidden_size, self.hidden_size))
-        self.Uz = nn.Parameter(torch.Tensor(self.hidden_size, self.hidden_size))
-        self.Ur = nn.Parameter(torch.Tensor(self.hidden_size, self.hidden_size))
+        self.Uh = make(self.hidden_size, self.hidden_size)
+        self.Uz = make(self.hidden_size, self.hidden_size)
+        self.Ur = make(self.hidden_size, self.hidden_size)
 
         #bias vectors for the updates, of shape (hidden size,)
-        self.bh = nn.Parameter(torch.Tensor(self.hidden_size))
-        self.bz = nn.Parameter(torch.Tensor(self.hidden_size))
-        self.br = nn.Parameter(torch.Tensor(self.hidden_size))
+        self.bh = make(self.hidden_size)
+        self.bz = make(self.hidden_size)
+        self.br = make(self.hidden_size)
+        
 
         self.embeddings = [self.Wh, self.Wz, self.Wr]
         self.updates = [self.Uh, self.Uz, self.Ur]
@@ -38,6 +43,7 @@ class EncoderCell(nn.Module):
             nn.init.xavier_normal_(W)
         for b in self.biases:
             b.data.zero_()
+        
 
     def _batch_mul(self, W, x):
         """ Applies a matrix-vec mutliplication that respects batching.

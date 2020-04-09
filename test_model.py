@@ -1,6 +1,7 @@
 import unittest
 import torch
 from model import EncoderCell
+from torch.autograd import gradcheck
 
 def tensordiff(t1, t2):
     return (t1 - t2).abs().sum().item()
@@ -50,6 +51,19 @@ class TestEncoderCell(unittest.TestCase):
         self.assertEqual(h.shape, hprev.shape)
         self.assertAlmostEqual(tensordiff(h, .5 * hprev), 0)
 
+    def test_backward(self):
+        """Partial gradient checks"""
+        input_size = 1
+        hidden_size = 2
+        ec = EncoderCell(input_size, hidden_size, dtype=torch.double)
+
+        batch_size = 1
+        x = torch.ones(batch_size, input_size).to(dtype=ec.dtype)
+        hprev = torch.ones(batch_size, hidden_size, requires_grad=True).to(dtype=ec.dtype)
+
+        def grad_fn(h):
+            return ec(x, h).sum()
+        self.assertTrue(gradcheck(grad_fn, hprev))
 
 if __name__ == "__main__":
     unittest.main()
