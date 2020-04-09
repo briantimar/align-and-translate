@@ -1,6 +1,6 @@
 import unittest
 import torch
-from model import EncoderCell
+from model import EncoderCell, batch_mul
 from torch.autograd import gradcheck
 
 def tensordiff(t1, t2):
@@ -14,10 +14,10 @@ class TestEncoderCell(unittest.TestCase):
         self.hidden_size = 4
         self.ec = EncoderCell(self.input_size, self.hidden_size)
 
-    def test__batch_mul(self):
+    def test_batch_mul(self):
         batch_size = 15
         x = torch.ones(batch_size, self.input_size)
-        h = self.ec._batch_mul(self.ec.Wh, x)
+        h = batch_mul(self.ec.Wh, x)
         self.assertEqual(h.shape, (batch_size, self.hidden_size))
 
     def test_updates(self):

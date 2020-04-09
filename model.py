@@ -2,6 +2,13 @@
 import torch
 import torch.nn as nn
 
+def batch_mul(W, x):
+    """ Applies a matrix-vec mutliplication that respects batching.
+        W: a (hidden, inp) matrix
+        x: a (batch_size, inp) vector
+        returns: (batch_size, hidden) vector"""
+    return torch.matmul(W.unsqueeze(0), x.unsqueeze(-1)).squeeze()
+
 class EncoderCell(nn.Module):
     """ Gated recurrent unit"""
 
@@ -44,25 +51,18 @@ class EncoderCell(nn.Module):
         for b in self.biases:
             b.data.zero_()
         
-
-    def _batch_mul(self, W, x):
-        """ Applies a matrix-vec mutliplication that respects batching.
-            W: a (hidden, inp) matrix
-            x: a (batch_size, inp) vector
-            returns: (batch_size, hidden) vector"""
-        return torch.matmul(W.unsqueeze(0), x.unsqueeze(-1)).squeeze()
     
     def _update_h(self, x, r, hprev):
         """Compute the proposed hidden update from r and the previous hidden state."""
-        return torch.tanh(self._batch_mul(self.Wh, x) + self._batch_mul(self.Uh, r * hprev) + self.bh)
+        return torch.tanh(batch_mul(self.Wh, x) + batch_mul(self.Uh, r * hprev) + self.bh)
 
     def _update_z(self, x, hprev):
         """Compute the new gate vector from input x and previous hidden state."""
-        return torch.sigmoid(self._batch_mul(self.Wz, x) + self._batch_mul(self.Uz, hprev) + self.bz)
+        return torch.sigmoid(batch_mul(self.Wz, x) + batch_mul(self.Uz, hprev) + self.bz)
     
     def _update_r(self, x, hprev):
         """Compute the new reset vector from input x and previous hidden state."""
-        return torch.sigmoid(self._batch_mul(self.Wr, x) + self._batch_mul(self.Ur, hprev) + self.br)
+        return torch.sigmoid(batch_mul(self.Wr, x) + batch_mul(self.Ur, hprev) + self.br)
 
     def forward(self, x, hprev):
         """ Run forward pass on the given input vector.
@@ -73,6 +73,49 @@ class EncoderCell(nn.Module):
         z = self._update_z(x, hprev)
         h_proposed = self._update_h(x, r, hprev)
         return z * h_proposed + (1 - z) * hprev
+
+class DecoderCell(nn.Module):
+    """Decoder cell which conditions on previous hidden state as well as attention-context."""
+
+    def __init__(self, input_size, hidden_size):
+        super().__init__()
+
+        self.input_size = input_size
+        self.hidden_size = hidden_size
+    
+        def make(*shape):
+            return nn.Parameter(torch.Tensor(*shape).to(dtype=self.dtype))
+
+        #embedding matrices, of shape (hidden_size, input_size)
+        self.Wh = make(self.hidden_size, self.input_size)
+        self.Wz = make(self.hidden_size, self.input_size)
+        self.Wr = make(self.hidden_size, self.input_size)
+
+        #update matrices, of shape (hidden size, hiddenn size)
+        self.Uh = make(self.hidden_size, self.hidden_size)
+        self.Uz = make(self.hidden_size, self.hidden_size)
+        self.Ur = make(self.hidden_size, self.hidden_size)
+
+        #context matrices, of shape (hidden_size, 2 * hidden_size)
+        self.Ch = make(self.hidden_size, 2 * self.hidden_size)
+        self.Cz = make(self.hidden_size, 2 * self.hidden_size)
+        self.Cr = make(self.hidden_size, 2 * self.hidden_size)
+
+        #bias vectors for the updates, of shape (hidden size,)
+        self.bh = make(self.hidden_size)
+        self.bz = make(self.hidden_size)
+        self.br = make(self.hidden_size)
+
+        self.embeddings = [self.Wh, self.Wz, self.Wr]
+        self.updates = [self.Uh, self.Uz, self.Ur]
+        self.contexts = [self.Ch, self.Cz, self.Cr]
+        self.biases = [self.bh, self.bz, self.br]
+
+        #initialize everything
+        for W in self.embeddings + self.updates + self.contexts:
+            nn.init.xavier_normal_(W)
+        for b in self.biases:
+            b.data.zero_()
 
 
 if __name__ == "__main__":
