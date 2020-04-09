@@ -1,11 +1,37 @@
 import unittest
 import torch
 from model import EncoderCell, batch_mul
+from model import DecoderCell
 from torch.autograd import gradcheck
 
 def tensordiff(t1, t2):
     return (t1 - t2).abs().sum().item()
 
+
+class TestDecoderCell(unittest.TestCase):
+
+    def setUp(self):
+        self.input_size = 2
+        self.hidden_size = 4
+        self.attention_size = 5
+        self.dc = DecoderCell(self.input_size, self.hidden_size, self.attention_size)
+    
+    def test__attention_energies(self):
+        batch_size = 7
+        input_length = 3
+        s = torch.randn(batch_size, self.hidden_size)
+        encoder_hiddens = torch.randn(batch_size, 2 * self.hidden_size, input_length)
+        e = self.dc._attention_energies(s, encoder_hiddens)
+        self.assertEqual(e.shape, (batch_size, input_length))
+    
+    def test__attention_weights(self):
+        batch_size = 7
+        input_length = 3
+        s = torch.randn(batch_size, self.hidden_size)
+        encoder_hiddens = torch.randn(batch_size, 2 * self.hidden_size, input_length)
+        e = self.dc._attention_weights(s, encoder_hiddens)
+        self.assertEqual(e.shape, (batch_size, input_length))
+        self.assertAlmostEqual(tensordiff(e.sum(dim=1), torch.ones(batch_size)), 0)
 
 class TestEncoderCell(unittest.TestCase):
 

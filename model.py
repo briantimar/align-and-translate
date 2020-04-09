@@ -158,9 +158,12 @@ class DecoderCell(nn.Module):
         #batch, Lx
         return torch.matmul(v, self.va)
 
-
-
-
+    def _attention_weights(self, decoder_hidden, encoder_hiddens):
+        """Compute vector of attention weights given: 
+            (batch_size, hidden_size) previous hidden state
+            (batch_size, 2 * hidden, Lx) tensor of all input bidirectional hidden states.
+        returns: (batch_size, Lx) vector of attention scores, normalized as probs along dim 1."""
+        return self._attention_energies(decoder_hidden, encoder_hiddens).softmax(dim=1)
 
     def forward_with_context(self, x, hprev, c):
         """ Run forward pass on the given input vector.
