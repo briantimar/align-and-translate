@@ -135,7 +135,7 @@ class DecoderCell(nn.Module):
         self.Uo = make(2 * self.output_hidden_size, self.hidden_size)
         self.Vo = make(2 * self.output_hidden_size, self.input_size)
         self.Co = make(2 * self.output_hidden_size, 2 * self.hidden_size)
-        self.vocab_size = make(self.vocab_size, self.output_hidden_size)
+        self.Wo = make(self.vocab_size, self.output_hidden_size)
 
         self.maxout = nn.MaxPool1d(kernel_size=2)
 
@@ -206,10 +206,20 @@ class DecoderCell(nn.Module):
 
     def _output_hidden(self, x, sprev, c):
         """Compute the output hidden layer values."""
-        #(batch_size, 2 * hidden_size)
+        #(batch_size, 2 * output_hidden_size)
         t_tilde = batch_mul(self.Uo, sprev) + batch_mul(self.Vo, x) + batch_mul(self.Co, c)
         return self.maxout(t_tilde.unsqueeze(1)).squeeze()
 
+    def _logits(self, x, sprev, c):
+        """ Compute logits for the decoder output at the current timestep.
+            x = (batch, input_size) embedded input
+            sprev = (batch, hidden_size) prev decoder hidden state
+            c = (batch, 2 * hidden_size) current context
+            returns: (batch, vocab_size) logits.
+            """
+        #batch, 2* output_hidden_size
+        t = self._output_hidden(x, sprev, c)
+        return batch_mul(self.Wo, t)
 
 
 if __name__ == "__main__":

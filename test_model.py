@@ -64,6 +64,17 @@ class TestDecoderCell(unittest.TestCase):
         t = self.dc._output_hidden(x, s, c)
         self.assertEqual(t.shape, (batch_size, self.output_hidden_size))
 
+    def test__logits(self):
+        batch_size = 7
+        input_length = 3
+        s = torch.randn(batch_size, self.hidden_size)
+        x = torch.randn(batch_size, self.input_size)
+        c = torch.randn(batch_size, 2 * self.hidden_size)
+        y = self.dc._logits(x, s, c)
+        self.assertEqual(y.shape, (batch_size, self.vocab_size))
+
+
+
 class TestEncoderCell(unittest.TestCase):
 
     def setUp(self):
