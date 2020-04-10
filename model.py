@@ -13,12 +13,12 @@ def batch_mul(W, x):
 def flip_padded(h, lengths):
     """ Flip a (max_len, batch_size) padded tensor h.
         lengths: length of each batch element."""
-    maxlen, batch_size = h.shape
+    maxlen, batch_size = h.shape[0], h.shape[1]
     idx = torch.tensor(list(range(maxlen-1, -1, -1))).long()
     flipped = h.index_select(0, idx)
     for i in range(batch_size):
-        flipped[:lengths[i], i] = flipped[maxlen - lengths[i]:, i]
-        flipped[lengths[i]:, i] = 0
+        flipped[:lengths[i], i, ...] = flipped[maxlen - lengths[i]:, i, ...]
+        flipped[lengths[i]:, i, ...] = 0
     return flipped
 
 class EncoderCell(nn.Module):
@@ -158,6 +158,7 @@ class BiEncoder(nn.Module):
         lengths = [len(s) for s in list_of_sequences]
         padded_tokens = self._pad_tokens(list(reversed(s)) for s in list_of_sequences)
         h = self._forward(padded_tokens, lengths, self.rtl_cell)     
+        return flip_padded(h, lengths)
 
 class DecoderCell(nn.Module):
     """Decoder cell which conditions on previous hidden state as well as attention-context."""
