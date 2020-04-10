@@ -22,8 +22,15 @@ class EncoderCell(nn.Module):
         self.hidden_size = hidden_size
         self.dtype = dtype
         
-        def make(*shape):
-            return nn.Parameter(torch.Tensor(*shape).to(dtype=self.dtype))
+        def make(*shape, init='xavier_normal'):
+            inits = {'xavier_normal': nn.init.xavier_normal_, 
+                    'zero': lambda t: t.data.zero_()}
+            if init not in inits:
+                raise ValueError(f"Unknown init {init}")
+            
+            w = nn.Parameter(torch.Tensor(*shape).to(dtype=self.dtype))
+            inits[init](w)
+            return w
 
         #embedding matrices, of shape (hidden_size, input_size)
         self.Wh = make(self.hidden_size, self.input_size)
@@ -36,20 +43,14 @@ class EncoderCell(nn.Module):
         self.Ur = make(self.hidden_size, self.hidden_size)
 
         #bias vectors for the updates, of shape (hidden size,)
-        self.bh = make(self.hidden_size)
-        self.bz = make(self.hidden_size)
-        self.br = make(self.hidden_size)
+        self.bh = make(self.hidden_size, init='zero')
+        self.bz = make(self.hidden_size, init='zero')
+        self.br = make(self.hidden_size, init='zero')
         
 
         self.embeddings = [self.Wh, self.Wz, self.Wr]
         self.updates = [self.Uh, self.Uz, self.Ur]
         self.biases = [self.bh, self.bz, self.br]
-
-        #initialize everything
-        for W in self.embeddings + self.updates:
-            nn.init.xavier_normal_(W)
-        for b in self.biases:
-            b.data.zero_()
         
     
     def _update_h(self, x, r, hprev):
@@ -89,58 +90,59 @@ class DecoderCell(nn.Module):
         self.attention_size = attention_size
         self.dtype = dtype
     
-        def make(*shape):
-            return nn.Parameter(torch.Tensor(*shape).to(dtype=self.dtype))
+        def make(*shape, init='xavier_normal'):
+            inits = {'xavier_normal': nn.init.xavier_normal_, 
+                    'zero': lambda t: t.data.zero_()}
+            if init not in inits:
+                raise ValueError(f"Unknown init {init}")
+            
+            w = nn.Parameter(torch.Tensor(*shape).to(dtype=self.dtype))
+            inits[init](w)
+            return w
 
         #embedding matrices, of shape (hidden_size, input_size)
-        self.Wh = make(self.hidden_size, self.input_size)
+        self.Ws = make(self.hidden_size, self.input_size)
         self.Wz = make(self.hidden_size, self.input_size)
         self.Wr = make(self.hidden_size, self.input_size)
 
         #update matrices, of shape (hidden size, hiddenn size)
-        self.Uh = make(self.hidden_size, self.hidden_size)
+        self.Us = make(self.hidden_size, self.hidden_size)
         self.Uz = make(self.hidden_size, self.hidden_size)
         self.Ur = make(self.hidden_size, self.hidden_size)
 
         #context matrices, of shape (hidden_size, 2 * hidden_size)
-        self.Ch = make(self.hidden_size, 2 * self.hidden_size)
+        self.Cs = make(self.hidden_size, 2 * self.hidden_size)
         self.Cz = make(self.hidden_size, 2 * self.hidden_size)
         self.Cr = make(self.hidden_size, 2 * self.hidden_size)
 
         #bias vectors for the updates, of shape (hidden size,)
-        self.bh = make(self.hidden_size)
-        self.bz = make(self.hidden_size)
-        self.br = make(self.hidden_size)
+        self.bs = make(self.hidden_size, init='zero')
+        self.bz = make(self.hidden_size, init='zero')
+        self.br = make(self.hidden_size, init='zero')
 
         #tensors for computing the attention scores
-        self.va = make(self.attention_size)
+        self.va = make(self.attention_size, init='zero')
         # this one couples to the decoder hidden state
         self.Wa = make(self.attention_size, self.hidden_size)
         # this one couples to the bidirectional encoder hidden state.
         self.Ua = make(self.attention_size, 2 * self.hidden_size)
 
-        self.embeddings = [self.Wh, self.Wz, self.Wr]
-        self.updates = [self.Uh, self.Uz, self.Ur]
-        self.contexts = [self.Ch, self.Cz, self.Cr]
-        self.biases = [self.bh, self.bz, self.br]
-
-        #initialize everything
-        for W in self.embeddings + self.updates + self.contexts:
-            nn.init.xavier_normal_(W)
-        for b in self.biases:
-            b.data.zero_()
+        self.embeddings = [self.Ws, self.Wz, self.Wr]
+        self.updates = [self.Us, self.Uz, self.Ur]
+        self.contexts = [self.Cs, self.Cz, self.Cr]
+        self.biases = [self.bs, self.bz, self.br]
     
-    def _update_h(self, x, r, hprev, c):
+    def _update_s(self, x, r, sprev, c):
         """Compute the proposed hidden update from r, the previous hidden state, and the context c"""
-        return torch.tanh(batch_mul(self.Wh, x) + batch_mul(self.Uh, r * hprev) + batch_mul(self.Ch, c) + self.bh)
+        return torch.tanh(batch_mul(self.Ws, x) + batch_mul(self.Us, r * sprev) + batch_mul(self.Cs, c) + self.bs)
 
-    def _update_z(self, x, hprev, c):
+    def _update_z(self, x, sprev, c):
         """Compute the new gate vector from input x, previous hidden state, and context c"""
-        return torch.sigmoid(batch_mul(self.Wz, x) + batch_mul(self.Uz, hprev) + batch_mul(self.Cz, c) + self.bz)
+        return torch.sigmoid(batch_mul(self.Wz, x) + batch_mul(self.Uz, sprev) + batch_mul(self.Cz, c) + self.bz)
     
-    def _update_r(self, x, hprev, c):
+    def _update_r(self, x, sprev, c):
         """Compute the new reset vector from input x, previous hidden state, and context c"""
-        return torch.sigmoid(batch_mul(self.Wr, x) + batch_mul(self.Ur, hprev) + batch_mul(self.Cr, c) + self.br)
+        return torch.sigmoid(batch_mul(self.Wr, x) + batch_mul(self.Ur, sprev) + batch_mul(self.Cr, c) + self.br)
 
     def _attention_energies(self, decoder_hidden, encoder_hiddens):
         """ Computes vector of attention energies.
@@ -165,17 +167,31 @@ class DecoderCell(nn.Module):
         returns: (batch_size, Lx) vector of attention scores, normalized as probs along dim 1."""
         return self._attention_energies(decoder_hidden, encoder_hiddens).softmax(dim=1)
 
-    def forward_with_context(self, x, hprev, c):
+    def forward_with_context(self, x, sprev, c):
         """ Run forward pass on the given input vector.
             x = (batch_size, input_dim) input vector
-            hprev = (batch_size, hidden_dim) hidden state from the previous timestep.
+            sprev = (batch_size, hidden_dim) hidden state from the previous timestep.
             c = (batch_size, 2 * hidden_dim) context vector for the current timestep
             Returns: the new hidden state, same shape as hprev."""
         
-        r = self._update_r(x, hprev, c)
-        z = self._update_z(x, hprev, c)
-        h_proposed = self._update_h(x, r, hprev, c)
-        return z * h_proposed + (1 - z) * hprev
+        r = self._update_r(x, sprev, c)
+        z = self._update_z(x, sprev, c)
+        s_proposed = self._update_s(x, r, sprev, c)
+        return z * s_proposed + (1 - z) * sprev
+
+    def forward(self, x, sprev, encoder_hiddens):
+        """ Compute new hidden state for the decoder.
+            x = (batch_size, input_dim) input vector
+            sprev = (batch_size, hidden_dim) decoder hidden state from previous timestep.
+            encoder_hiddens = (batch_size, 2 * hidden_dim, Lx) tensor of bilstm hidden states.
+            returns: new (batch_size, hidden_dim) decoder hidden state.
+            """
+        #(batch_size, Lx) set of attention weights onto inputs.
+        alpha = self._attention_weights(sprev, encoder_hiddens)
+        # attention-averaged context, (batch_size, 2 * hidden_dim)
+        c = (alpha.unsqueeze(1) * encoder_hiddens).sum(2)
+        return self.forward_with_context(x, sprev, c)
+
 
 
 if __name__ == "__main__":
