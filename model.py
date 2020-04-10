@@ -74,6 +74,7 @@ class EncoderCell(nn.Module):
         h_proposed = self._update_h(x, r, hprev)
         return z * h_proposed + (1 - z) * hprev
 
+
 class BiEncoder(nn.Module):
     """A bidirectional GRU layer, along with a shared word embedding."""
 
@@ -87,17 +88,19 @@ class BiEncoder(nn.Module):
         self.embedding_size = embedding_size
         self.hidden_size = hidden_size
         self.embedding = nn.Embedding(self.vocab_size, self.embedding_size)
-        self.cell = EncoderCell(self.embedding_size, self.hidden_size)
+        self.ltr_cell = EncoderCell(self.embedding_size, self.hidden_size)
+        self.rtl_cell = EncoderCell(self.embedding_size, self.hidden_size)
 
     def _embed(self, tokens):
         """ tokens: (batch_size,) tensor of integer tokens.
             returns: (batch_size, embed_dim) embedded tensor. """
         return self.embedding(tokens)
 
-    def _ltr_forward(self, padded_tokens, lengths):
+    def _forward(self, padded_tokens, lengths, cell):
         """Compute forward pass for the left-to-right GRU
             padded_tokens: (length, batch_size) padded tensor of input tokens.
             lengths: (batch_size,) tensor of integer lengths, SHOULD BE SORTED
+            cell: an EncoderCell instance
             returns: 
                 hiddens - (length, batch_size) tensor of hidden states; the length of each hidden sequence in the batch
             is the same as that of the corresponding token sequence.
@@ -119,14 +122,23 @@ class BiEncoder(nn.Module):
             #perform cell computation at this timestep
             inp = self._embed(token_batch)
             h = h[:cur_batch_size, ...]
-            h = self.cell(inp, h)
+            h = cell(inp, h)
             hidden_steps.append(h)
 
         #stack all the hidden outputs.
         return pad_sequence(hidden_steps, batch_first=True)
 
+    def _pad_tokens(self, list_of_sequences):
+        """Pad list of int sequences into long tensor."""
+        return pad_sequence([torch.tensor(s) for s in list_of_sequences]).long()
 
-
+    def _ltr_forward(self, list_of_sequences):
+        """ Obtain left-to-right hidden states from the given list of sequences.
+            Each seq is list of integers."""
+        lengths = [len(s) for s in list_of_sequences]
+        padded_tokens = self._pad_tokens(list_of_sequences)
+        return self._forward(padded_tokens, lengths, self.ltr_cell)
+        
 
 class DecoderCell(nn.Module):
     """Decoder cell which conditions on previous hidden state as well as attention-context."""

@@ -18,19 +18,22 @@ class TestBiEncoder(unittest.TestCase):
         self.embedding_dim = 3
         self.bienc = BiEncoder(self.vocab_size, self.embedding_dim, self.hidden_size)
     
-        toks = [torch.tensor([0, 4, 4, 2]), torch.tensor([1, 2])]
-        self.lengths = torch.tensor([len(t) for t in toks]).long()
-        self.tokens = pad_sequence(toks).long()
-        self.batch_size = self.tokens.shape[1]
-        self.maxlen = self.tokens.shape[0]
+        self.tokens = [[0, 4, 4, 2], [1,2]]
+        self.lengths = [len(t) for t in self.tokens]
+        self.padded_tokens = self.bienc._pad_tokens(self.tokens)
+        self.batch_size = self.padded_tokens.shape[1]
+        self.maxlen = self.padded_tokens.shape[0]
 
     def test__embed(self):
-        e = self.bienc._embed(self.tokens[0, :])
+        e = self.bienc._embed(self.padded_tokens[0, :])
         self.assertEqual(e.shape, (self.batch_size,self.embedding_dim))
 
-    def test__ltr_forward(self):
-       h = self.bienc._ltr_forward(self.tokens, self.lengths)
+    def test__forward(self):
+       h = self.bienc._forward(self.padded_tokens, self.lengths, self.bienc.ltr_cell)
        self.assertEqual(h.shape, (self.maxlen, self.batch_size, self.hidden_size))
+
+    def test__ltr_forward(self):
+        h = self.bienc._ltr_forward(self.tokens)
 
 class TestDecoderCell(unittest.TestCase):
     """Most of these are just checking for correct tensor shapes"""
