@@ -102,6 +102,10 @@ class BiEncoder(nn.Module):
         self.ltr_cell = EncoderCell(self.embedding_size, self.hidden_size)
         self.rtl_cell = EncoderCell(self.embedding_size, self.hidden_size)
 
+        # used for computing the decoder's initial hidden state
+        # assumes enc/dec have same hidden sizes.
+        self.Ws = nn.Linear(self.hidden_size, self.hidden_size)
+
     def _embed(self, tokens):
         """ tokens: (batch_size,) tensor of integer tokens.
             returns: (batch_size, embed_dim) embedded tensor. """
@@ -143,19 +147,17 @@ class BiEncoder(nn.Module):
         """Pad list of int sequences into long tensor."""
         return pad_sequence([torch.tensor(s) for s in list_of_sequences]).long()
 
-    def _ltr_forward(self, list_of_sequences):
+    def _ltr_forward(self, list_of_sequences, lengths):
         """ Obtain left-to-right hidden states from the given list of sequences.
             Each seq is list of integers.
                 return shape: (maxlen, batch_size, hidden_dim)"""
-        lengths = [len(s) for s in list_of_sequences]
         padded_tokens = self._pad_tokens(list_of_sequences)
         return self._forward(padded_tokens, lengths, self.ltr_cell)
 
-    def _rtl_forward(self, list_of_sequences):
+    def _rtl_forward(self, list_of_sequences, lengths):
         """ Right-to-left hidden states from the given list.
             The padding mask for these will match that of the ltr hidden states.
             return shape: (maxlen, batch_size, hidden_dim)""" 
-        lengths = [len(s) for s in list_of_sequences]
         padded_tokens = self._pad_tokens(list(reversed(s)) for s in list_of_sequences)
         h = self._forward(padded_tokens, lengths, self.rtl_cell)     
         return flip_padded(h, lengths)
@@ -163,11 +165,19 @@ class BiEncoder(nn.Module):
     def forward(self, list_of_sequences):
         """ Computes the full set of hidden states for the encoder layer.
             list_of_sequences: a list of integer lists, corresponding to token values.
-            returns: (maxlen, batch_size, 2 * hidden_dim) padded hidden state tensor.
+            returns: 
+                hiddens = (maxlen, batch_size, 2 * hidden_dim) padded hidden state tensor.
+                dec_init = (batch_size, hidden_dim) initialization for the decoder hidden state.
             """
-        h_ltr = self._ltr_forward(list_of_sequences)
-        h_rtl = self._rtl_forward(list_of_sequences)
-        return torch.cat((h_ltr, h_rtl), dim=2)
+
+        lengths = [len(s) for s in list_of_sequences]
+        # both are (maxlen, batch_size, hidden_dim)
+        h_ltr = self._ltr_forward(list_of_sequences, lengths)
+        h_rtl = self._rtl_forward(list_of_sequences, lengths)
+        hiddens = torch.cat((h_ltr, h_rtl), dim=2)
+        #just taking the final state from one direction
+        dec_init = self.Ws(h_ltr[[l-1 for l in lengths], list(range(len(lengths))), ...])
+        return hiddens, dec_init
 
 class DecoderCell(nn.Module):
     """Decoder cell which conditions on previous hidden state as well as attention-context."""
@@ -338,6 +348,9 @@ class DecoderCell(nn.Module):
         s = self._hidden_with_context(x, sprev, c)
         logits = self._logits(x, sprev, c)
         return s, logits
+
+
+
 
 if __name__ == "__main__":
     pass
