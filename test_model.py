@@ -2,11 +2,35 @@ import unittest
 import torch
 from model import EncoderCell, batch_mul
 from model import DecoderCell
+from model import BiEncoder
 from torch.autograd import gradcheck
+from torch.nn.utils.rnn import pad_sequence
 
 def tensordiff(t1, t2):
     return (t1 - t2).abs().sum().item()
 
+
+class TestBiEncoder(unittest.TestCase):
+
+    def setUp(self):
+        self.vocab_size = 10
+        self.hidden_size = 5
+        self.embedding_dim = 3
+        self.bienc = BiEncoder(self.vocab_size, self.embedding_dim, self.hidden_size)
+    
+        toks = [torch.tensor([0, 4, 4, 2]), torch.tensor([1, 2])]
+        self.lengths = torch.tensor([len(t) for t in toks]).long()
+        self.tokens = pad_sequence(toks).long()
+        self.batch_size = self.tokens.shape[1]
+        self.maxlen = self.tokens.shape[0]
+
+    def test__embed(self):
+        e = self.bienc._embed(self.tokens[0, :])
+        self.assertEqual(e.shape, (self.batch_size,self.embedding_dim))
+
+    def test__ltr_forward(self):
+       h = self.bienc._ltr_forward(self.tokens, self.lengths)
+       self.assertEqual(h.shape, (self.maxlen, self.batch_size, self.hidden_size))
 
 class TestDecoderCell(unittest.TestCase):
     """Most of these are just checking for correct tensor shapes"""

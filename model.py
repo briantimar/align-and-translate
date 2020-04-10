@@ -1,6 +1,7 @@
 """Defines the RNN-plus-attention model described in the original paper."""
 import torch
 import torch.nn as nn
+from torch.nn.utils.rnn import pack_padded_sequence, pad_sequence
 
 def batch_mul(W, x):
     """ Applies a matrix-vec mutliplication that respects batching.
@@ -46,12 +47,10 @@ class EncoderCell(nn.Module):
         self.bh = make(self.hidden_size, init='zero')
         self.bz = make(self.hidden_size, init='zero')
         self.br = make(self.hidden_size, init='zero')
-        
 
         self.embeddings = [self.Wh, self.Wz, self.Wr]
         self.updates = [self.Uh, self.Uz, self.Ur]
         self.biases = [self.bh, self.bz, self.br]
-        
     
     def _update_h(self, x, r, hprev):
         """Compute the proposed hidden update from r and the previous hidden state."""
@@ -74,6 +73,60 @@ class EncoderCell(nn.Module):
         z = self._update_z(x, hprev)
         h_proposed = self._update_h(x, r, hprev)
         return z * h_proposed + (1 - z) * hprev
+
+class BiEncoder(nn.Module):
+    """A bidirectional GRU layer, along with a shared word embedding."""
+
+    def __init__(self, vocab_size, embedding_size, hidden_size):
+        """vocab_size = number of words in the vocabulary
+        embedding_size = dimension of the word embeddings
+        hidden_size = dimension of the hidden states."""
+        super().__init__()
+
+        self.vocab_size = vocab_size
+        self.embedding_size = embedding_size
+        self.hidden_size = hidden_size
+        self.embedding = nn.Embedding(self.vocab_size, self.embedding_size)
+        self.cell = EncoderCell(self.embedding_size, self.hidden_size)
+
+    def _embed(self, tokens):
+        """ tokens: (batch_size,) tensor of integer tokens.
+            returns: (batch_size, embed_dim) embedded tensor. """
+        return self.embedding(tokens)
+
+    def _ltr_forward(self, padded_tokens, lengths):
+        """Compute forward pass for the left-to-right GRU
+            padded_tokens: (length, batch_size) padded tensor of input tokens.
+            lengths: (batch_size,) tensor of integer lengths, SHOULD BE SORTED
+            returns: 
+                hiddens - (length, batch_size) tensor of hidden states; the length of each hidden sequence in the batch
+            is the same as that of the corresponding token sequence.
+            """
+        L, batch_size = padded_tokens.shape
+        packed_tokens = pack_padded_sequence(padded_tokens, lengths)
+        #init hidden state with zeros
+        h = torch.zeros(batch_size, self.hidden_size)
+        hidden_steps = []
+        
+        batch_start = 0
+
+        for i in range(L):
+            cur_batch_size = packed_tokens.batch_sizes[i]
+            batch_end = batch_start + cur_batch_size
+            token_batch = packed_tokens.data[batch_start:batch_end]
+            batch_start = batch_end
+
+            #perform cell computation at this timestep
+            inp = self._embed(token_batch)
+            h = h[:cur_batch_size, ...]
+            h = self.cell(inp, h)
+            hidden_steps.append(h)
+
+        #stack all the hidden outputs.
+        return pad_sequence(hidden_steps, batch_first=True)
+
+
+
 
 class DecoderCell(nn.Module):
     """Decoder cell which conditions on previous hidden state as well as attention-context."""
