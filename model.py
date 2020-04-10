@@ -179,8 +179,8 @@ class DecoderCell(nn.Module):
         returns: (batch_size, Lx) vector of attention scores, normalized as probs along dim 1."""
         return self._attention_energies(decoder_hidden, encoder_hiddens).softmax(dim=1)
 
-    def forward_with_context(self, x, sprev, c):
-        """ Run forward pass on the given input vector.
+    def _hidden_with_context(self, x, sprev, c):
+        """ 
             x = (batch_size, input_dim) input vector
             sprev = (batch_size, hidden_dim) hidden state from the previous timestep.
             c = (batch_size, 2 * hidden_dim) context vector for the current timestep
@@ -191,18 +191,26 @@ class DecoderCell(nn.Module):
         s_proposed = self._update_s(x, r, sprev, c)
         return z * s_proposed + (1 - z) * sprev
 
-    def forward(self, x, sprev, encoder_hiddens):
+    def _context(self, sprev, encoder_hiddens):
+        """ Computes the context vector c
+            sprev = (batch_size, hidden_dim) hidden state from the previous timestep.
+            encoder_hiddens = (batch_size, 2 * hidden_dim, Lx) tensor of bilstm hidden states.
+            returns: (batch, 2 * hidden_dim) context vec
+        """
+        #(batch_size, Lx) set of attention weights onto inputs.
+        alpha = self._attention_weights(sprev, encoder_hiddens)
+        # attention-averaged context, (batch_size, 2 * hidden_dim)
+        return (alpha.unsqueeze(1) * encoder_hiddens).sum(2)
+
+    def _hidden(self, x, sprev, encoder_hiddens):
         """ Compute new hidden state for the decoder.
             x = (batch_size, input_dim) input vector
             sprev = (batch_size, hidden_dim) decoder hidden state from previous timestep.
             encoder_hiddens = (batch_size, 2 * hidden_dim, Lx) tensor of bilstm hidden states.
             returns: new (batch_size, hidden_dim) decoder hidden state.
             """
-        #(batch_size, Lx) set of attention weights onto inputs.
-        alpha = self._attention_weights(sprev, encoder_hiddens)
-        # attention-averaged context, (batch_size, 2 * hidden_dim)
-        c = (alpha.unsqueeze(1) * encoder_hiddens).sum(2)
-        return self.forward_with_context(x, sprev, c)
+        c = self._context(sprev, encoder_hiddens)
+        return self._hidden_with_context(x, sprev, c)
 
     def _output_hidden(self, x, sprev, c):
         """Compute the output hidden layer values."""
@@ -221,6 +229,21 @@ class DecoderCell(nn.Module):
         t = self._output_hidden(x, sprev, c)
         return batch_mul(self.Wo, t)
 
+    def forward(self, x, sprev, encoder_hiddens):
+        """ Performs the full decoder cell hidden pass.
+         x = (batch, input_size) embedded input
+        sprev = (batch, hidden_size) prev decoder hidden state
+        encoder_hiddens = (batch, 2*hidden_size, Lx) tensor of encoder hidden states.
+        returns:
+            new_hidden, logits
+            where
+                new_hidden = (batch, hidden_size)
+                logits = (batch, vocab_size)
+        """
+        c = self._context(sprev, encoder_hiddens)
+        s = self._hidden_with_context(x, sprev, c)
+        logits = self._logits(x, sprev, c)
+        return s, logits
 
 if __name__ == "__main__":
     pass

@@ -37,22 +37,30 @@ class TestDecoderCell(unittest.TestCase):
         self.assertEqual(e.shape, (batch_size, input_length))
         self.assertAlmostEqual(tensordiff(e.sum(dim=1), torch.ones(batch_size)), 0)
 
-    def test_forward_with_context(self):
+    def test__hidden_with_context(self):
         batch_size = 7
         input_length = 3
         s = torch.randn(batch_size, self.hidden_size)
         x = torch.randn(batch_size, self.input_size)
         c = torch.randn(batch_size, 2 * self.hidden_size)
-        s2 = self.dc.forward_with_context(x, s, c)
+        s2 = self.dc._hidden_with_context(x, s, c)
         self.assertEqual(s2.shape, s.shape)
 
-    def test_forward(self):
+    def test__context(self):
+        batch_size = 7
+        input_length = 3
+        s = torch.randn(batch_size, self.hidden_size)
+        enc_hiddens = torch.randn(batch_size, 2 * self.hidden_size, input_length)
+        c = self.dc._context(s, enc_hiddens)
+        self.assertEqual(c.shape, (batch_size, 2 * self.hidden_size))
+
+    def test__hidden(self):
         batch_size = 7
         input_length = 3
         s = torch.randn(batch_size, self.hidden_size)
         x = torch.randn(batch_size, self.input_size)
         enc_hiddens = torch.randn(batch_size, 2 * self.hidden_size, input_length)
-        s2 = self.dc.forward(x, s, enc_hiddens)
+        s2 = self.dc._hidden(x, s, enc_hiddens)
         self.assertEqual(s2.shape, s2.shape)
 
     def test__output_hidden(self):
@@ -73,6 +81,15 @@ class TestDecoderCell(unittest.TestCase):
         y = self.dc._logits(x, s, c)
         self.assertEqual(y.shape, (batch_size, self.vocab_size))
 
+    def test_forward(self):    
+        batch_size = 7
+        input_length = 3
+        s = torch.randn(batch_size, self.hidden_size)
+        x = torch.randn(batch_size, self.input_size)
+        enc_hiddens = torch.randn(batch_size, 2 * self.hidden_size, input_length)
+        s2, logits = self.dc(x, s, enc_hiddens)
+        self.assertEqual(s2.shape, s.shape)
+        self.assertEqual(logits.shape, (batch_size, self.vocab_size))
 
 
 class TestEncoderCell(unittest.TestCase):
