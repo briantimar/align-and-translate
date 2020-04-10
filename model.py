@@ -160,6 +160,15 @@ class BiEncoder(nn.Module):
         h = self._forward(padded_tokens, lengths, self.rtl_cell)     
         return flip_padded(h, lengths)
 
+    def forward(self, list_of_sequences):
+        """ Computes the full set of hidden states for the encoder layer.
+            list_of_sequences: a list of integer lists, corresponding to token values.
+            returns: (maxlen, batch_size, 2 * hidden_dim) padded hidden state tensor.
+            """
+        h_ltr = self._ltr_forward(list_of_sequences)
+        h_rtl = self._rtl_forward(list_of_sequences)
+        return torch.cat((h_ltr, h_rtl), dim=2)
+
 class DecoderCell(nn.Module):
     """Decoder cell which conditions on previous hidden state as well as attention-context."""
 

@@ -40,6 +40,9 @@ class TestBiEncoder(unittest.TestCase):
         h = self.bienc._rtl_forward(self.tokens)
         self.assertEqual(h.shape, (self.maxlen, self.batch_size, self.hidden_size))
 
+    def test_forward(self):
+        h = self.bienc.forward(self.tokens)
+        self.assertEqual(h.shape, (self.maxlen, self.batch_size, 2 * self.hidden_size) )
 
     def test_flip_padded(self):
         h = pad_sequence([torch.tensor([1, 1, 2, 4]), torch.tensor([3, 3])])
