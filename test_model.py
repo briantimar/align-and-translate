@@ -42,6 +42,15 @@ class TestDecoderCell(unittest.TestCase):
         s2 = self.dc.forward_with_context(x, s, c)
         self.assertEqual(s2.shape, s.shape)
 
+    def test_forward(self):
+        batch_size = 7
+        input_length = 3
+        s = torch.randn(batch_size, self.hidden_size)
+        x = torch.randn(batch_size, self.input_size)
+        enc_hiddens = torch.randn(batch_size, 2 * self.hidden_size, input_length)
+        s2 = self.dc.forward(x, s, enc_hiddens)
+        self.assertEqual(s2.shape, s2.shape)
+
 class TestEncoderCell(unittest.TestCase):
 
     def setUp(self):
