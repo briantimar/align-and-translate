@@ -78,16 +78,20 @@ class EncoderCell(nn.Module):
 class DecoderCell(nn.Module):
     """Decoder cell which conditions on previous hidden state as well as attention-context."""
 
-    def __init__(self, input_size, hidden_size, attention_size, dtype=torch.float):
+    def __init__(self, input_size, hidden_size, attention_size, output_hidden_size, vocab_size, dtype=torch.float):
         """input_size: int, dimenionality of the input (or output) vectors
             hidden_size: int, dimensionality of the decoder hidden state
             attention_size: int, dimensionality of the vectors used to define attention scores.
+            output_hidden_size: int, size of the hidden layer before the output logits
+            vocab_size: int: number of tokens in the vocabulary.
             """
         super().__init__()
 
         self.input_size = input_size
         self.hidden_size = hidden_size
         self.attention_size = attention_size
+        self.output_hidden_size = output_hidden_size
+        self.vocab_size = vocab_size
         self.dtype = dtype
     
         def make(*shape, init='xavier_normal'):
@@ -126,6 +130,14 @@ class DecoderCell(nn.Module):
         self.Wa = make(self.attention_size, self.hidden_size)
         # this one couples to the bidirectional encoder hidden state.
         self.Ua = make(self.attention_size, 2 * self.hidden_size)
+
+        # tensors for computing the output logits
+        self.Uo = make(2 * self.output_hidden_size, self.hidden_size)
+        self.Vo = make(2 * self.output_hidden_size, self.input_size)
+        self.Co = make(2 * self.output_hidden_size, 2 * self.hidden_size)
+        self.vocab_size = make(self.vocab_size, self.output_hidden_size)
+
+        self.maxout = nn.MaxPool1d(kernel_size=2)
 
         self.embeddings = [self.Ws, self.Wz, self.Wr]
         self.updates = [self.Us, self.Uz, self.Ur]
@@ -191,6 +203,12 @@ class DecoderCell(nn.Module):
         # attention-averaged context, (batch_size, 2 * hidden_dim)
         c = (alpha.unsqueeze(1) * encoder_hiddens).sum(2)
         return self.forward_with_context(x, sprev, c)
+
+    def _output_hidden(self, x, sprev, c):
+        """Compute the output hidden layer values."""
+        #(batch_size, 2 * hidden_size)
+        t_tilde = batch_mul(self.Uo, sprev) + batch_mul(self.Vo, x) + batch_mul(self.Co, c)
+        return self.maxout(t_tilde.unsqueeze(1)).squeeze()
 
 
 

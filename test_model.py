@@ -9,12 +9,16 @@ def tensordiff(t1, t2):
 
 
 class TestDecoderCell(unittest.TestCase):
+    """Most of these are just checking for correct tensor shapes"""
+
 
     def setUp(self):
         self.input_size = 2
         self.hidden_size = 4
         self.attention_size = 5
-        self.dc = DecoderCell(self.input_size, self.hidden_size, self.attention_size)
+        self.output_hidden_size = 6
+        self.vocab_size = 20
+        self.dc = DecoderCell(self.input_size, self.hidden_size, self.attention_size, self.output_hidden_size, self.vocab_size)
     
     def test__attention_energies(self):
         batch_size = 7
@@ -50,6 +54,15 @@ class TestDecoderCell(unittest.TestCase):
         enc_hiddens = torch.randn(batch_size, 2 * self.hidden_size, input_length)
         s2 = self.dc.forward(x, s, enc_hiddens)
         self.assertEqual(s2.shape, s2.shape)
+
+    def test__output_hidden(self):
+        batch_size = 7
+        input_length = 3
+        s = torch.randn(batch_size, self.hidden_size)
+        x = torch.randn(batch_size, self.input_size)
+        c = torch.randn(batch_size, 2 * self.hidden_size)
+        t = self.dc._output_hidden(x, s, c)
+        self.assertEqual(t.shape, (batch_size, self.output_hidden_size))
 
 class TestEncoderCell(unittest.TestCase):
 
