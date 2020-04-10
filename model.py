@@ -10,6 +10,17 @@ def batch_mul(W, x):
         returns: (batch_size, hidden) vector"""
     return torch.matmul(W.unsqueeze(0), x.unsqueeze(-1)).squeeze()
 
+def flip_padded(h, lengths):
+    """ Flip a (max_len, batch_size) padded tensor h.
+        lengths: length of each batch element."""
+    maxlen, batch_size = h.shape
+    idx = torch.tensor(list(range(maxlen-1, -1, -1))).long()
+    flipped = h.index_select(0, idx)
+    for i in range(batch_size):
+        flipped[:lengths[i], i] = flipped[maxlen - lengths[i]:, i]
+        flipped[lengths[i]:, i] = 0
+    return flipped
+
 class EncoderCell(nn.Module):
     """ Gated recurrent unit"""
 
@@ -134,11 +145,19 @@ class BiEncoder(nn.Module):
 
     def _ltr_forward(self, list_of_sequences):
         """ Obtain left-to-right hidden states from the given list of sequences.
-            Each seq is list of integers."""
+            Each seq is list of integers.
+                return shape: (maxlen, batch_size, hidden_dim)"""
         lengths = [len(s) for s in list_of_sequences]
         padded_tokens = self._pad_tokens(list_of_sequences)
         return self._forward(padded_tokens, lengths, self.ltr_cell)
-        
+
+    def _rtl_forward(self, list_of_sequences):
+        """ Right-to-left hidden states from the given list.
+            The padding mask for these will match that of the ltr hidden states.
+            return shape: (maxlen, batch_size, hidden_dim)""" 
+        lengths = [len(s) for s in list_of_sequences]
+        padded_tokens = self._pad_tokens(list(reversed(s)) for s in list_of_sequences)
+        h = self._forward(padded_tokens, lengths, self.rtl_cell)     
 
 class DecoderCell(nn.Module):
     """Decoder cell which conditions on previous hidden state as well as attention-context."""

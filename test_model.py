@@ -2,7 +2,7 @@ import unittest
 import torch
 from model import EncoderCell, batch_mul
 from model import DecoderCell
-from model import BiEncoder
+from model import BiEncoder, flip_padded
 from torch.autograd import gradcheck
 from torch.nn.utils.rnn import pad_sequence
 
@@ -34,6 +34,13 @@ class TestBiEncoder(unittest.TestCase):
 
     def test__ltr_forward(self):
         h = self.bienc._ltr_forward(self.tokens)
+
+    def test_flip_padded(self):
+        h = pad_sequence([torch.tensor([1, 1, 2, 4]), torch.tensor([3, 3])])
+        lengths=[4, 2]
+        hf = flip_padded(h, lengths)
+        self.assertEqual(hf.shape, h.shape)
+        self.assertAlmostEqual(tensordiff(hf, torch.tensor([[4, 3], [2, 3], [1, 0], [1, 0]])), 0)
 
 class TestDecoderCell(unittest.TestCase):
     """Most of these are just checking for correct tensor shapes"""
