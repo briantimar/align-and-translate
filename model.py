@@ -248,6 +248,9 @@ class DecoderCell(nn.Module):
         self.updates = [self.Us, self.Uz, self.Ur]
         self.contexts = [self.Cs, self.Cz, self.Cr]
         self.biases = [self.bs, self.bz, self.br]
+
+        #cache the encoder-hidden contribution to the attention here
+        self._enc_hidden_attn = None
     
     def _update_s(self, x, r, sprev, c):
         """Compute the proposed hidden update from r, the previous hidden state, and the context c"""
@@ -261,15 +264,24 @@ class DecoderCell(nn.Module):
         """Compute the new reset vector from input x, previous hidden state, and context c"""
         return torch.sigmoid(batch_mul(self.Wr, x) + batch_mul(self.Ur, sprev) + batch_mul(self.Cr, c) + self.br)
 
+    def _reset_attention_cache(self):
+        """Clears cached contribution to the attention."""
+        self._enc_hidden_attn = None
+
     def _attention_energies(self, decoder_hidden, encoder_hiddens):
         """ Computes vector of attention energies.
             decoder_hidden: (batch_size, hidden_size) hidden state vector from the previous timestep
             encoder_hidden: (Lx, batch_size, 2 * hidden) tensor holding all hidden states from the input encoding, stacked along the final dimension. 
                 Lx = length of the input sequence.
             returns: (Lx, batch_size) vector of energy scores, one for each token in the input.
+
+            This method accesses cached contributions to the attention, so make sure to clear these after the forward pass!
+
         """
         #(Lx, batch_size, attention)
-        enc_scores = torch.matmul(encoder_hiddens, self.Ua.permute(1, 0))
+        if self._enc_hidden_attn is None:
+            self._enc_hidden_attn = torch.matmul(encoder_hiddens, self.Ua.permute(1, 0))
+        enc_scores = self._enc_hidden_attn
         #batch, attn_size
         dec_score = batch_mul(self.Wa, decoder_hidden)
         #Lx, batch, attn size
@@ -373,6 +385,7 @@ class DecoderLayer(nn.Module):
         #for embedding tokens in the target language
         self.embedding = nn.Embedding(self.vocab_size, self.embedding_dim)
 
+
     def loss(self, encoder_hiddens, dec_hidden_init, output_sequences, pad_token):
         """Compute a sequence of output logits of max length L.
             encoder_hiddens: (max_inp_length, batch_size, 2 * hidden_dim) padded hidden state tensor
@@ -403,6 +416,8 @@ class DecoderLayer(nn.Module):
             # logits = (batch_size, vocab_size)
             s, logits = self.cell(x, s, encoder_hiddens)
             losses.append(lossfn(logits, padded_tokens[t]))
+        
+        self.cell._reset_attention_cache()
         
         return torch.stack(losses).mean()
 
