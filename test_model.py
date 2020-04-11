@@ -1,13 +1,36 @@
 import unittest
 import torch
 from model import EncoderCell, batch_mul
-from model import DecoderCell
-from model import BiEncoder, flip_padded
+from model import DecoderCell, DecoderLayer
+from model import BiEncoder, flip_padded, pad_tokens
 from torch.autograd import gradcheck
 from torch.nn.utils.rnn import pad_sequence
 
 def tensordiff(t1, t2):
     return (t1 - t2).abs().sum().item()
+
+
+class TestDecoderLayer(unittest.TestCase):
+
+    def setUp(self):
+        self.vocab_size = 10
+        self.hidden_size = 11
+        self.embedding_dim = 6
+        self.attention_size = 4
+        self.output_hidden_size = 7
+        self.dec = DecoderLayer(self.embedding_dim, self.hidden_size, self.attention_size, 
+                                self.output_hidden_size, self.vocab_size)
+    
+    def test_loss(self):
+        targets = [[1, 2, 3], [0, 1]]
+        batch_size = len(targets)
+        max_inp_len = 8
+        enc_hiddens = torch.randn(max_inp_len, batch_size, 2 * self.hidden_size)
+        dec_hidden_init = torch.randn(batch_size, self.hidden_size)
+        pad_token = -1
+        
+        # loss = self.dec.loss(enc_hiddens, dec_hidden_init, targets, pad_token)
+        
 
 
 class TestBiEncoder(unittest.TestCase):
@@ -20,7 +43,7 @@ class TestBiEncoder(unittest.TestCase):
     
         self.tokens = [[0, 4, 4, 2], [1,2]]
         self.lengths = [len(t) for t in self.tokens]
-        self.padded_tokens = self.bienc._pad_tokens(self.tokens)
+        self.padded_tokens = pad_tokens(self.tokens)
         self.batch_size = self.padded_tokens.shape[1]
         self.maxlen = self.padded_tokens.shape[0]
 
@@ -68,18 +91,18 @@ class TestDecoderCell(unittest.TestCase):
         batch_size = 7
         input_length = 3
         s = torch.randn(batch_size, self.hidden_size)
-        encoder_hiddens = torch.randn(batch_size, 2 * self.hidden_size, input_length)
+        encoder_hiddens = torch.randn(input_length, batch_size, 2 * self.hidden_size)
         e = self.dc._attention_energies(s, encoder_hiddens)
-        self.assertEqual(e.shape, (batch_size, input_length))
+        self.assertEqual(e.shape, (input_length, batch_size))
     
     def test__attention_weights(self):
         batch_size = 7
         input_length = 3
         s = torch.randn(batch_size, self.hidden_size)
-        encoder_hiddens = torch.randn(batch_size, 2 * self.hidden_size, input_length)
+        encoder_hiddens = torch.randn(input_length, batch_size, 2 * self.hidden_size)
         e = self.dc._attention_weights(s, encoder_hiddens)
-        self.assertEqual(e.shape, (batch_size, input_length))
-        self.assertAlmostEqual(tensordiff(e.sum(dim=1), torch.ones(batch_size)), 0)
+        self.assertEqual(e.shape, (input_length, batch_size))
+        self.assertAlmostEqual(tensordiff(e.sum(dim=0), torch.ones(batch_size)), 0)
 
     def test__hidden_with_context(self):
         batch_size = 7
@@ -94,7 +117,7 @@ class TestDecoderCell(unittest.TestCase):
         batch_size = 7
         input_length = 3
         s = torch.randn(batch_size, self.hidden_size)
-        enc_hiddens = torch.randn(batch_size, 2 * self.hidden_size, input_length)
+        enc_hiddens = torch.randn(input_length, batch_size, 2 * self.hidden_size)
         c = self.dc._context(s, enc_hiddens)
         self.assertEqual(c.shape, (batch_size, 2 * self.hidden_size))
 
@@ -103,7 +126,7 @@ class TestDecoderCell(unittest.TestCase):
         input_length = 3
         s = torch.randn(batch_size, self.hidden_size)
         x = torch.randn(batch_size, self.input_size)
-        enc_hiddens = torch.randn(batch_size, 2 * self.hidden_size, input_length)
+        enc_hiddens = torch.randn(input_length, batch_size, 2 * self.hidden_size)
         s2 = self.dc._hidden(x, s, enc_hiddens)
         self.assertEqual(s2.shape, s2.shape)
 
@@ -130,7 +153,7 @@ class TestDecoderCell(unittest.TestCase):
         input_length = 3
         s = torch.randn(batch_size, self.hidden_size)
         x = torch.randn(batch_size, self.input_size)
-        enc_hiddens = torch.randn(batch_size, 2 * self.hidden_size, input_length)
+        enc_hiddens = torch.randn(input_length, batch_size, 2 * self.hidden_size)
         s2, logits = self.dc(x, s, enc_hiddens)
         self.assertEqual(s2.shape, s.shape)
         self.assertEqual(logits.shape, (batch_size, self.vocab_size))

@@ -21,6 +21,11 @@ def flip_padded(h, lengths):
         flipped[lengths[i]:, i, ...] = 0
     return flipped
 
+def pad_tokens(list_of_sequences, padding_value=0):
+    """Pad list of int sequences into long tensor."""
+    return pad_sequence([torch.tensor(s) for s in list_of_sequences], 
+            padding_value=padding_value).long()
+
 class EncoderCell(nn.Module):
     """ Gated recurrent unit"""
 
@@ -143,22 +148,18 @@ class BiEncoder(nn.Module):
         #stack all the hidden outputs.
         return pad_sequence(hidden_steps, batch_first=True)
 
-    def _pad_tokens(self, list_of_sequences):
-        """Pad list of int sequences into long tensor."""
-        return pad_sequence([torch.tensor(s) for s in list_of_sequences]).long()
-
     def _ltr_forward(self, list_of_sequences, lengths):
         """ Obtain left-to-right hidden states from the given list of sequences.
             Each seq is list of integers.
                 return shape: (maxlen, batch_size, hidden_dim)"""
-        padded_tokens = self._pad_tokens(list_of_sequences)
+        padded_tokens = pad_tokens(list_of_sequences)
         return self._forward(padded_tokens, lengths, self.ltr_cell)
 
     def _rtl_forward(self, list_of_sequences, lengths):
         """ Right-to-left hidden states from the given list.
             The padding mask for these will match that of the ltr hidden states.
             return shape: (maxlen, batch_size, hidden_dim)""" 
-        padded_tokens = self._pad_tokens(list(reversed(s)) for s in list_of_sequences)
+        padded_tokens = pad_tokens(list(reversed(s)) for s in list_of_sequences)
         h = self._forward(padded_tokens, lengths, self.rtl_cell)     
         return flip_padded(h, lengths)
 
@@ -263,25 +264,25 @@ class DecoderCell(nn.Module):
     def _attention_energies(self, decoder_hidden, encoder_hiddens):
         """ Computes vector of attention energies.
             decoder_hidden: (batch_size, hidden_size) hidden state vector from the previous timestep
-            encoder_hidden: (batch_size, 2 * hidden, Lx) tensor holding all hidden states from the input encoding, stacked along the final dimension. 
+            encoder_hidden: (Lx, batch_size, 2 * hidden) tensor holding all hidden states from the input encoding, stacked along the final dimension. 
                 Lx = length of the input sequence.
-            returns: (batch_size, Lx) vector of energy scores, one for each token in the input.
+            returns: (Lx, batch_size) vector of energy scores, one for each token in the input.
         """
-        #(batch, attn_size, Lx)
-        enc_scores = torch.matmul(self.Ua.unsqueeze(0), encoder_hiddens)
+        #(Lx, batch_size, attention)
+        enc_scores = torch.matmul(encoder_hiddens, self.Ua.permute(1, 0))
         #batch, attn_size
         dec_score = batch_mul(self.Wa, decoder_hidden)
-        #batch, Lx, attn size
-        v = torch.tanh(dec_score.unsqueeze(-1) + enc_scores).permute(0, 2, 1)
-        #batch, Lx
+        #Lx, batch, attn size
+        v = torch.tanh(dec_score.unsqueeze(0) + enc_scores)
+        #Lx, batch
         return torch.matmul(v, self.va)
 
     def _attention_weights(self, decoder_hidden, encoder_hiddens):
         """Compute vector of attention weights given: 
             (batch_size, hidden_size) previous hidden state
-            (batch_size, 2 * hidden, Lx) tensor of all input bidirectional hidden states.
-        returns: (batch_size, Lx) vector of attention scores, normalized as probs along dim 1."""
-        return self._attention_energies(decoder_hidden, encoder_hiddens).softmax(dim=1)
+            (Lx, batch_size, 2 * hidden) tensor of all input bidirectional hidden states.
+        returns: (Lx, batch) vector of attention scores, normalized as probs along dim 1."""
+        return self._attention_energies(decoder_hidden, encoder_hiddens).softmax(dim=0)
 
     def _hidden_with_context(self, x, sprev, c):
         """ 
@@ -298,19 +299,19 @@ class DecoderCell(nn.Module):
     def _context(self, sprev, encoder_hiddens):
         """ Computes the context vector c
             sprev = (batch_size, hidden_dim) hidden state from the previous timestep.
-            encoder_hiddens = (batch_size, 2 * hidden_dim, Lx) tensor of bilstm hidden states.
+            encoder_hiddens = (Lx, batch_size, 2 * hidden_dim) tensor of bilstm hidden states.
             returns: (batch, 2 * hidden_dim) context vec
         """
-        #(batch_size, Lx) set of attention weights onto inputs.
+        #(Lx, batch_size) set of attention weights onto inputs.
         alpha = self._attention_weights(sprev, encoder_hiddens)
         # attention-averaged context, (batch_size, 2 * hidden_dim)
-        return (alpha.unsqueeze(1) * encoder_hiddens).sum(2)
+        return (alpha.unsqueeze(2) * encoder_hiddens).sum(0)
 
     def _hidden(self, x, sprev, encoder_hiddens):
         """ Compute new hidden state for the decoder.
             x = (batch_size, input_dim) input vector
             sprev = (batch_size, hidden_dim) decoder hidden state from previous timestep.
-            encoder_hiddens = (batch_size, 2 * hidden_dim, Lx) tensor of bilstm hidden states.
+            encoder_hiddens = (Lx, batch_size, 2 * hidden_dim) tensor of bilstm hidden states.
             returns: new (batch_size, hidden_dim) decoder hidden state.
             """
         c = self._context(sprev, encoder_hiddens)
@@ -337,7 +338,7 @@ class DecoderCell(nn.Module):
         """ Performs the full decoder cell hidden pass.
          x = (batch, input_size) embedded input
         sprev = (batch, hidden_size) prev decoder hidden state
-        encoder_hiddens = (batch, 2*hidden_size, Lx) tensor of encoder hidden states.
+        encoder_hiddens = (Lx, batch, 2*hidden_size) tensor of encoder hidden states.
         returns:
             new_hidden, logits
             where
@@ -348,6 +349,58 @@ class DecoderCell(nn.Module):
         s = self._hidden_with_context(x, sprev, c)
         logits = self._logits(x, sprev, c)
         return s, logits
+
+class DecoderLayer(nn.Module):
+    """The decoder layer for the seq2seq + attention model.
+        For computing output token probs, accepts encoder hidden states at all timesteps, as well as an initial decoder hidden state.
+        """
+    
+    def __init__(self, embedding_dim, hidden_size, attention_size, output_hidden_size, vocab_size, dtype=torch.float):
+        super().__init__()
+        self.embedding_dim = embedding_dim
+        self.hidden_size = hidden_size
+        self.attention_size = attention_size
+        self.output_hidden_size = output_hidden_size
+        self.vocab_size = vocab_size
+        self.dtype = dtype
+
+        self.cell = DecoderCell(embedding_dim, hidden_size, attention_size, output_hidden_size, vocab_size, dtype=self.dtype)
+        #for embedding tokens in the target language
+        self.embedding = nn.Embedding(self.vocab_size, self.embedding_dim)
+
+    def loss(self, encoder_hiddens, dec_hidden_init, output_sequences, pad_token):
+        """Compute a sequence of output logits of max length L.
+            encoder_hiddens: (max_inp_length, batch_size, 2 * hidden_dim) padded hidden state tensor
+            dec_hidden_init: (batch_size, hidden_dim) init tensor for the decoder cell hidden state.
+            output_sequences: a list of integer lists, corresponding to a single batch of tokens in the target language. Each list
+            corresponds to a single sequence.
+            pad_token: token corresponding to padding in the target sequence, which will be ignored in the
+            loss function.
+
+            Returns: cross-entropy loss, a scalar tensor
+
+            TODO share the embedding of the encoder hiddens into the attention vector.
+
+            """
+        target_lengths = [len(s) for s in output_sequences]
+        padded_tokens = pad_tokens(output_sequences, padding_value=pad_token)
+        max_target_len, batch_size = padded_tokens.shape
+        
+        lossfn = nn.CrossEntropyLoss(ignore_index=pad_token)
+
+        #s = the batched decoder hidden state
+        s = dec_hidden_init
+        losses = []
+        for t in range(max_target_len):
+            # embed the input token at this timestep
+            #(batch_size, embed_dim)
+            x = self.embedding(padded_tokens[t])
+            # logits = (batch_size, vocab_size)
+            print(x.shape, s.shape, encoder_hiddens.shape)
+            s, logits = self.cell(x, s, encoder_hiddens)
+            loss.append(lossfn(logits, padded_tokens[t]))
+        
+        return torch.stack(losses).mean()
 
 
 
