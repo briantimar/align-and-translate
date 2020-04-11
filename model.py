@@ -355,14 +355,19 @@ class DecoderLayer(nn.Module):
         For computing output token probs, accepts encoder hidden states at all timesteps, as well as an initial decoder hidden state.
         """
     
-    def __init__(self, embedding_dim, hidden_size, attention_size, output_hidden_size, vocab_size, dtype=torch.float):
+    def __init__(self, embedding_dim, hidden_size, attention_size, output_hidden_size, vocab_size, 
+                        pad_token, dtype=torch.float):
         super().__init__()
+        self.pad_token = pad_token
         self.embedding_dim = embedding_dim
         self.hidden_size = hidden_size
         self.attention_size = attention_size
         self.output_hidden_size = output_hidden_size
         self.vocab_size = vocab_size
         self.dtype = dtype
+        
+        if not (0 <= pad_token < self.vocab_size):
+            raise ValueError(f"Not a valid pad token: {pad_token}")
 
         self.cell = DecoderCell(embedding_dim, hidden_size, attention_size, output_hidden_size, vocab_size, dtype=self.dtype)
         #for embedding tokens in the target language
@@ -396,9 +401,8 @@ class DecoderLayer(nn.Module):
             #(batch_size, embed_dim)
             x = self.embedding(padded_tokens[t])
             # logits = (batch_size, vocab_size)
-            print(x.shape, s.shape, encoder_hiddens.shape)
             s, logits = self.cell(x, s, encoder_hiddens)
-            loss.append(lossfn(logits, padded_tokens[t]))
+            losses.append(lossfn(logits, padded_tokens[t]))
         
         return torch.stack(losses).mean()
 
