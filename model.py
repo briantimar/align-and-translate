@@ -117,7 +117,7 @@ class BiEncoder(nn.Module):
         return self.embedding(tokens)
 
     def _forward(self, padded_tokens, lengths, cell):
-        """Compute forward pass for the left-to-right GRU
+        """Compute forward pass for a GRU layer
             padded_tokens: (length, batch_size) padded tensor of input tokens.
             lengths: (batch_size,) tensor of integer lengths, SHOULD BE SORTED
             cell: an EncoderCell instance
@@ -148,33 +148,32 @@ class BiEncoder(nn.Module):
         #stack all the hidden outputs.
         return pad_sequence(hidden_steps, batch_first=True)
 
-    def _ltr_forward(self, list_of_sequences, lengths):
-        """ Obtain left-to-right hidden states from the given list of sequences.
+    def _ltr_forward(self, padded_tokens, lengths):
+        """ Obtain left-to-right hidden states from the tokens.
             Each seq is list of integers.
                 return shape: (maxlen, batch_size, hidden_dim)"""
-        padded_tokens = pad_tokens(list_of_sequences)
         return self._forward(padded_tokens, lengths, self.ltr_cell)
 
-    def _rtl_forward(self, list_of_sequences, lengths):
+    def _rtl_forward(self, padded_tokens, lengths):
         """ Right-to-left hidden states from the given list.
             The padding mask for these will match that of the ltr hidden states.
             return shape: (maxlen, batch_size, hidden_dim)""" 
-        padded_tokens = pad_tokens(list(reversed(s)) for s in list_of_sequences)
-        h = self._forward(padded_tokens, lengths, self.rtl_cell)     
+        h = self._forward(flip_padded(padded_tokens, lengths), lengths, self.rtl_cell)     
         return flip_padded(h, lengths)
 
-    def forward(self, list_of_sequences):
+    def forward(self, padded_tokens, lengths):
         """ Computes the full set of hidden states for the encoder layer.
-            list_of_sequences: a list of integer lists, corresponding to token values.
+                padded_tokens: (maxlen, batch_size) long tensor of tokens
+                lengths: (batch_size,) int tensor holding the length of each sequence in the batch.
+            
             returns: 
                 hiddens = (maxlen, batch_size, 2 * hidden_dim) padded hidden state tensor.
                 dec_init = (batch_size, hidden_dim) initialization for the decoder hidden state.
             """
 
-        lengths = [len(s) for s in list_of_sequences]
         # both are (maxlen, batch_size, hidden_dim)
-        h_ltr = self._ltr_forward(list_of_sequences, lengths)
-        h_rtl = self._rtl_forward(list_of_sequences, lengths)
+        h_ltr = self._ltr_forward(padded_tokens, lengths)
+        h_rtl = self._rtl_forward(padded_tokens, lengths)
         hiddens = torch.cat((h_ltr, h_rtl), dim=2)
         #just taking the final state from one direction
         dec_init = self.Ws(h_ltr[[l-1 for l in lengths], list(range(len(lengths))), ...])
