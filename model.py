@@ -94,10 +94,11 @@ class EncoderCell(nn.Module):
 class BiEncoder(nn.Module):
     """A bidirectional GRU layer, along with a shared word embedding."""
 
-    def __init__(self, vocab_size, embedding_size, hidden_size):
+    def __init__(self, vocab_size, embedding_size, hidden_size, dropout_prob=.5):
         """vocab_size = number of words in the vocabulary
         embedding_size = dimension of the word embeddings
-        hidden_size = dimension of the hidden states."""
+        hidden_size = dimension of the hidden states.
+        dropout_prob = dropout probability, applied to all encoder hidden states """
         super().__init__()
 
         self.vocab_size = vocab_size
@@ -106,6 +107,9 @@ class BiEncoder(nn.Module):
         self.embedding = nn.Embedding(self.vocab_size, self.embedding_size)
         self.ltr_cell = EncoderCell(self.embedding_size, self.hidden_size)
         self.rtl_cell = EncoderCell(self.embedding_size, self.hidden_size)
+        
+        self.dropout_prob = dropout_prob
+        self.dropout = nn.Dropout(self.dropout_prob)
 
         # used for computing the decoder's initial hidden state
         # assumes enc/dec have same hidden sizes.
@@ -174,7 +178,7 @@ class BiEncoder(nn.Module):
         # both are (maxlen, batch_size, hidden_dim)
         h_ltr = self._ltr_forward(padded_tokens, lengths)
         h_rtl = self._rtl_forward(padded_tokens, lengths)
-        hiddens = torch.cat((h_ltr, h_rtl), dim=2)
+        hiddens = self.dropout(torch.cat((h_ltr, h_rtl), dim=2))
         #just taking the final state from one direction
         dec_init = self.Ws(h_ltr[[l-1 for l in lengths], list(range(len(lengths))), ...])
         return hiddens, dec_init
@@ -414,6 +418,39 @@ class DecoderLayer(nn.Module):
         
         return torch.stack(losses).mean()
 
+class Seq2SeqA(nn.Module):
+    """ A seq2seq model with attention.
+    """
+
+    def __init__(self, config):
+        """ 
+            config = dict holding all model parameters
+                'src_vocab_size', 'trg_vocab_size', 
+                  'embedding_dim', 'hidden_dim', 
+                  'attention_dim', 'output_hidden_dim', 'pad_token'
+        """
+        super().__init__()
+        params = ['src_vocab_size', 'trg_vocab_size', 
+                  'embedding_dim', 'hidden_dim', 
+                  'attention_dim', 'output_hidden_dim', 'pad_token']
+        for p in params:
+            setattr(self, p, config[p])
+
+        self.encoder = BiEncoder(self.src_vocab_size, self.embedding_dim, self.hidden_dim)
+        self.decoder = DecoderLayer(self.embedding_dim, self.hidden_dim, self.attention_dim, 
+                                    self.output_hidden_dim, self.trg_vocab_size, 
+                                    self.pad_token)        
+
+    def loss(self, padded_src_tokens, src_lengths, padded_trg_tokens):
+        """ Computes the NLL loss of the (src, target) pair.
+            padded_src_tokens = (max_inp_len, batch_size) long tensor of input tokens
+            src_lengths = (batch_size,) tensor or list of input lengths
+            padded_trg_tokens = (max_output_len, batch_size) long tensor of target tokens.
+
+            returns: scalar loss tensor.
+            """
+        enc_hiddens, dec_init = self.encoder(padded_src_tokens, src_lengths)
+        return self.decoder.loss(enc_hiddens, dec_init, padded_trg_tokens)
 
 
 
