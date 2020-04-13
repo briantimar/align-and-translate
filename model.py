@@ -448,11 +448,13 @@ class Seq2SeqA(nn.Module):
         super().__init__()
         params = ['src_vocab_size', 'trg_vocab_size', 
                   'embedding_dim', 'hidden_dim', 
-                  'attention_dim', 'output_hidden_dim', 'pad_token']
+                  'attention_dim', 'output_hidden_dim', 'pad_token', 
+                  'dropout_prob']
+        # :/
         for p in params:
             setattr(self, p, config[p])
 
-        self.encoder = BiEncoder(self.src_vocab_size, self.embedding_dim, self.hidden_dim)
+        self.encoder = BiEncoder(self.src_vocab_size, self.embedding_dim, self.hidden_dim, dropout_prob=self.dropout_prob)
         self.decoder = DecoderLayer(self.embedding_dim, self.hidden_dim, self.attention_dim, 
                                     self.output_hidden_dim, self.trg_vocab_size, 
                                     self.pad_token)        

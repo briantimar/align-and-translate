@@ -121,7 +121,7 @@ class TestDecoderCell(unittest.TestCase):
         e = self.dc._attention_weights(s, encoder_hiddens, attn_mask=mask)
 
         self.assertEqual(e.shape, (input_length, batch_size))
-        self.assertAlmostEqual(tensordiff(e.sum(dim=0), torch.ones(batch_size)), 0)
+        self.assertAlmostEqual(tensordiff(e.sum(dim=0), torch.ones(batch_size)), 0, places=5)
 
     def test__hidden_with_context(self):
         batch_size = 7
