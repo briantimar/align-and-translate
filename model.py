@@ -385,25 +385,19 @@ class DecoderLayer(nn.Module):
         self.embedding = nn.Embedding(self.vocab_size, self.embedding_dim)
 
 
-    def loss(self, encoder_hiddens, dec_hidden_init, output_sequences, pad_token):
+    def loss(self, encoder_hiddens, dec_hidden_init, padded_tokens):
         """Compute a sequence of output logits of max length L.
             encoder_hiddens: (max_inp_length, batch_size, 2 * hidden_dim) padded hidden state tensor
             dec_hidden_init: (batch_size, hidden_dim) init tensor for the decoder cell hidden state.
-            output_sequences: a list of integer lists, corresponding to a single batch of tokens in the target language. Each list
-            corresponds to a single sequence.
-            pad_token: token corresponding to padding in the target sequence, which will be ignored in the
-            loss function.
+            padded_tokens: (max_output_length, batch_size) long tensor of output tokens.
 
             Returns: cross-entropy loss, a scalar tensor
 
             TODO share the embedding of the encoder hiddens into the attention vector.
 
             """
-        target_lengths = [len(s) for s in output_sequences]
-        padded_tokens = pad_tokens(output_sequences, padding_value=pad_token)
         max_target_len, batch_size = padded_tokens.shape
-        
-        lossfn = nn.CrossEntropyLoss(ignore_index=pad_token)
+        lossfn = nn.CrossEntropyLoss(ignore_index=self.pad_token)
 
         #s = the batched decoder hidden state
         s = dec_hidden_init

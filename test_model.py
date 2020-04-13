@@ -24,13 +24,13 @@ class TestDecoderLayer(unittest.TestCase):
     
     def test_loss(self):
         targets = [[1, 2, 3], [0, 1]]
+        padded_tokens = pad_tokens(targets)
         batch_size = len(targets)
         max_inp_len = 8
         enc_hiddens = torch.randn(max_inp_len, batch_size, 2 * self.hidden_size)
         dec_hidden_init = torch.randn(batch_size, self.hidden_size)
-        pad_token = 9
         
-        loss = self.dec.loss(enc_hiddens, dec_hidden_init, targets, pad_token)
+        loss = self.dec.loss(enc_hiddens, dec_hidden_init, padded_tokens)
         self.assertEqual(loss.shape, ())
         
 
