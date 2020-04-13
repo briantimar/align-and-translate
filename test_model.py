@@ -96,16 +96,23 @@ class TestDecoderCell(unittest.TestCase):
         batch_size = 7
         input_length = 3
         s = torch.randn(batch_size, self.hidden_size)
+        mask = torch.ones(input_length, batch_size).to(dtype=torch.bool)
+        mask[:, 0] = False
         encoder_hiddens = torch.randn(input_length, batch_size, 2 * self.hidden_size)
-        e = self.dc._attention_energies(s, encoder_hiddens)
+        
+        e = self.dc._attention_energies(s, encoder_hiddens, attn_mask=mask)
         self.assertEqual(e.shape, (input_length, batch_size))
+        
     
     def test__attention_weights(self):
         batch_size = 7
         input_length = 3
         s = torch.randn(batch_size, self.hidden_size)
+        mask = torch.ones(input_length, batch_size).to(dtype=torch.bool)
+        mask[:, 0] = False
         encoder_hiddens = torch.randn(input_length, batch_size, 2 * self.hidden_size)
-        e = self.dc._attention_weights(s, encoder_hiddens)
+        e = self.dc._attention_weights(s, encoder_hiddens, attn_mask=mask)
+
         self.assertEqual(e.shape, (input_length, batch_size))
         self.assertAlmostEqual(tensordiff(e.sum(dim=0), torch.ones(batch_size)), 0)
 

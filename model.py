@@ -204,6 +204,7 @@ class DecoderCell(nn.Module):
     
         def make(*shape, init='xavier_normal'):
             inits = {'xavier_normal': nn.init.xavier_normal_, 
+                    'normal': lambda t: nn.init.normal_(t, std=1e-3),
                     'zero': lambda t: t.data.zero_()}
             if init not in inits:
                 raise ValueError(f"Unknown init {init}")
@@ -233,7 +234,7 @@ class DecoderCell(nn.Module):
         self.br = make(self.hidden_size, init='zero')
 
         #tensors for computing the attention scores
-        self.va = make(self.attention_size, init='zero')
+        self.va = make(self.attention_size, init='normal')
         # this one couples to the decoder hidden state
         self.Wa = make(self.attention_size, self.hidden_size)
         # this one couples to the bidirectional encoder hidden state.
@@ -271,19 +272,28 @@ class DecoderCell(nn.Module):
         """Clears cached contribution to the attention."""
         self._enc_hidden_attn = None
 
-    def _attention_energies(self, decoder_hidden, encoder_hiddens):
+    def _attention_energies(self, decoder_hidden, encoder_hiddens, attn_mask=None):
         """ Computes vector of attention energies.
             decoder_hidden: (batch_size, hidden_size) hidden state vector from the previous timestep
             encoder_hidden: (Lx, batch_size, 2 * hidden) tensor holding all hidden states from the input encoding, stacked along the final dimension. 
                 Lx = length of the input sequence.
+            attn_mask = (Lx, batch_size) byte tensor indicating which input values are not padded.
             returns: (Lx, batch_size) vector of energy scores, one for each token in the input.
 
             This method accesses cached contributions to the attention, so make sure to clear these after the forward pass!
 
         """
+        if attn_mask is None:
+            attn_mask = torch.ones(encoder_hiddens.size(0), encoder_hiddens.size(1), 
+                                    self.attention_size).to(device = self.Ua.device, 
+                                                                        dtype=torch.bool)
+        else:
+            attn_mask = attn_mask.unsqueeze(2).expand(*attn_mask.shape, self.attention_size)
         #(Lx, batch_size, attention)
         if self._enc_hidden_attn is None:
             self._enc_hidden_attn = torch.matmul(encoder_hiddens, self.Ua.permute(1, 0))
+        # mask out the padded values.
+        self._enc_hidden_attn[~attn_mask] = -1000
         enc_scores = self._enc_hidden_attn
         #batch, attn_size
         dec_score = batch_mul(self.Wa, decoder_hidden)
@@ -292,12 +302,12 @@ class DecoderCell(nn.Module):
         #Lx, batch
         return torch.matmul(v, self.va)
 
-    def _attention_weights(self, decoder_hidden, encoder_hiddens):
+    def _attention_weights(self, decoder_hidden, encoder_hiddens, attn_mask=None):
         """Compute vector of attention weights given: 
             (batch_size, hidden_size) previous hidden state
             (Lx, batch_size, 2 * hidden) tensor of all input bidirectional hidden states.
         returns: (Lx, batch) vector of attention scores, normalized as probs along dim 1."""
-        return self._attention_energies(decoder_hidden, encoder_hiddens).softmax(dim=0)
+        return self._attention_energies(decoder_hidden, encoder_hiddens, attn_mask=attn_mask).softmax(dim=0)
 
     def _hidden_with_context(self, x, sprev, c):
         """ 
@@ -311,25 +321,25 @@ class DecoderCell(nn.Module):
         s_proposed = self._update_s(x, r, sprev, c)
         return z * s_proposed + (1 - z) * sprev
 
-    def _context(self, sprev, encoder_hiddens):
+    def _context(self, sprev, encoder_hiddens, attn_mask=None):
         """ Computes the context vector c
             sprev = (batch_size, hidden_dim) hidden state from the previous timestep.
             encoder_hiddens = (Lx, batch_size, 2 * hidden_dim) tensor of bilstm hidden states.
             returns: (batch, 2 * hidden_dim) context vec
         """
         #(Lx, batch_size) set of attention weights onto inputs.
-        alpha = self._attention_weights(sprev, encoder_hiddens)
+        alpha = self._attention_weights(sprev, encoder_hiddens, attn_mask=attn_mask)
         # attention-averaged context, (batch_size, 2 * hidden_dim)
         return (alpha.unsqueeze(2) * encoder_hiddens).sum(0)
 
-    def _hidden(self, x, sprev, encoder_hiddens):
+    def _hidden(self, x, sprev, encoder_hiddens, attn_mask=None):
         """ Compute new hidden state for the decoder.
             x = (batch_size, input_dim) input vector
             sprev = (batch_size, hidden_dim) decoder hidden state from previous timestep.
             encoder_hiddens = (Lx, batch_size, 2 * hidden_dim) tensor of bilstm hidden states.
             returns: new (batch_size, hidden_dim) decoder hidden state.
             """
-        c = self._context(sprev, encoder_hiddens)
+        c = self._context(sprev, encoder_hiddens, attn_mask=attn_mask)
         return self._hidden_with_context(x, sprev, c)
 
     def _output_hidden(self, x, sprev, c):
@@ -349,7 +359,7 @@ class DecoderCell(nn.Module):
         t = self._output_hidden(x, sprev, c)
         return batch_mul(self.Wo, t)
 
-    def forward(self, x, sprev, encoder_hiddens):
+    def forward(self, x, sprev, encoder_hiddens, attn_mask=None):
         """ Performs the full decoder cell hidden pass.
          x = (batch, input_size) embedded input
         sprev = (batch, hidden_size) prev decoder hidden state
@@ -360,7 +370,7 @@ class DecoderCell(nn.Module):
                 new_hidden = (batch, hidden_size)
                 logits = (batch, vocab_size)
         """
-        c = self._context(sprev, encoder_hiddens)
+        c = self._context(sprev, encoder_hiddens, attn_mask=attn_mask)
         s = self._hidden_with_context(x, sprev, c)
         logits = self._logits(x, sprev, c)
         return s, logits
