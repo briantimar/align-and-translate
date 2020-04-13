@@ -76,6 +76,9 @@ class TestBiEncoder(unittest.TestCase):
         hf = flip_padded(h, lengths)
         self.assertEqual(hf.shape, h.shape)
         self.assertAlmostEqual(tensordiff(hf, torch.tensor([[4, 3], [2, 3], [1, 0], [1, 0]])), 0)
+        hff = flip_padded(hf, lengths)
+        self.assertAlmostEqual(tensordiff(hff, h), 0)
+
 
 class TestDecoderCell(unittest.TestCase):
     """Most of these are just checking for correct tensor shapes"""
