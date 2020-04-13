@@ -14,7 +14,7 @@ def flip_padded(h, lengths):
     """ Flip a (max_len, batch_size) padded tensor h.
         lengths: length of each batch element."""
     maxlen, batch_size = h.shape[0], h.shape[1]
-    idx = torch.tensor(list(range(maxlen-1, -1, -1))).long()
+    idx = torch.tensor(list(range(maxlen-1, -1, -1))).long().to(device=h.device)
     flipped = h.index_select(0, idx)
     for i in range(batch_size):
         flipped[:lengths[i], i, ...] = flipped[maxlen - lengths[i]:, i, ...]
