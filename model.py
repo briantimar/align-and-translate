@@ -132,7 +132,7 @@ class BiEncoder(nn.Module):
         L, batch_size = padded_tokens.shape
         packed_tokens = pack_padded_sequence(padded_tokens, lengths)
         #init hidden state with zeros
-        h = torch.zeros(batch_size, self.hidden_size)
+        h = torch.zeros(batch_size, self.hidden_size).to(padded_tokens.device)
         hidden_steps = []
         
         batch_start = 0
