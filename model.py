@@ -26,6 +26,12 @@ def pad_tokens(list_of_sequences, padding_value=0):
     return pad_sequence([torch.tensor(s) for s in list_of_sequences], 
             padding_value=padding_value).long()
 
+def make_mask(lengths):
+    """Given a list of lengths, returns mask of shape (maxlen, batch_size)
+    which is nonzero when the corresponding sequence is extant.
+    """
+    return pad_tokens([[1]*l for l in lengths]).to(device=lengths.device, dtype=bool)
+
 class EncoderCell(nn.Module):
     """ Gated recurrent unit"""
 
@@ -399,7 +405,7 @@ class DecoderLayer(nn.Module):
         self.embedding = nn.Embedding(self.vocab_size, self.embedding_dim)
 
 
-    def loss(self, encoder_hiddens, dec_hidden_init, padded_tokens):
+    def loss(self, encoder_hiddens, dec_hidden_init, padded_tokens, attn_mask=None):
         """Compute a sequence of output logits of max length L.
             encoder_hiddens: (max_inp_length, batch_size, 2 * hidden_dim) padded hidden state tensor
             dec_hidden_init: (batch_size, hidden_dim) init tensor for the decoder cell hidden state.
@@ -421,7 +427,7 @@ class DecoderLayer(nn.Module):
             #(batch_size, embed_dim)
             x = self.embedding(padded_tokens[t])
             # logits = (batch_size, vocab_size)
-            s, logits = self.cell(x, s, encoder_hiddens)
+            s, logits = self.cell(x, s, encoder_hiddens, attn_mask=attn_mask)
             losses.append(lossfn(logits, padded_tokens[t]))
         
         self.cell._reset_attention_cache()
@@ -459,8 +465,9 @@ class Seq2SeqA(nn.Module):
 
             returns: scalar loss tensor.
             """
+        attn_mask = make_mask(src_lengths)
         enc_hiddens, dec_init = self.encoder(padded_src_tokens, src_lengths)
-        return self.decoder.loss(enc_hiddens, dec_init, padded_trg_tokens)
+        return self.decoder.loss(enc_hiddens, dec_init, padded_trg_tokens, attn_mask=attn_mask)
 
 
 

@@ -32,6 +32,13 @@ class TestDecoderLayer(unittest.TestCase):
         
         loss = self.dec.loss(enc_hiddens, dec_hidden_init, padded_tokens)
         self.assertEqual(loss.shape, ())
+
+    def test_make_mask(self):
+        from model import make_mask
+        lengths = torch.tensor([2, 1])
+        target = torch.tensor([[True, True], [True, False]])
+        msk = make_mask(lengths)
+        self.assertEqual((target==msk).sum().item(), len(target.flatten()))
         
 
 
