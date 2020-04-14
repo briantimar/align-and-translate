@@ -8,7 +8,10 @@ def batch_mul(W, x):
         W: a (hidden, inp) matrix
         x: a (batch_size, inp) vector
         returns: (batch_size, hidden) vector"""
-    return torch.matmul(W.unsqueeze(0), x.unsqueeze(-1)).squeeze()
+    batch_size = x.size(0)
+    hidden = W.size(0)
+    y = torch.matmul(W.unsqueeze(0), x.unsqueeze(-1)).view(batch_size, hidden)
+    return y
 
 def flip_padded(h, lengths):
     """ Flip a (max_len, batch_size) padded tensor h.

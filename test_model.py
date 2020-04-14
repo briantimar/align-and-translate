@@ -191,6 +191,20 @@ class TestEncoderCell(unittest.TestCase):
         h = batch_mul(self.ec.Wh, x)
         self.assertEqual(h.shape, (batch_size, self.hidden_size))
 
+        d = 2
+        dout = 5
+        batch = 3
+        W = torch.randn(dout, d)
+        x = torch.randn(batch, d)
+        y = batch_mul(W, x)
+        for i in range(batch):
+            self.assertAlmostEqual(tensordiff(y[i], torch.matmul(W, x[i])), 0)
+
+        x2 = torch.randn(1, d)
+        y2 = batch_mul(W, x2)
+        self.assertEqual(y2.shape, (1, dout))
+        self.assertAlmostEqual(tensordiff(y2[0], torch.matmul(W, x2[0])), 0)
+
     def test_updates(self):
 
         for W in self.ec.embeddings + self.ec.updates:
