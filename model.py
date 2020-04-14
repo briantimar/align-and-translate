@@ -416,6 +416,7 @@ class DecoderLayer(nn.Module):
             TODO share the embedding of the encoder hiddens into the attention vector.
 
             """
+        self.cell._reset_attention_cache()
         max_target_len, batch_size = padded_tokens.shape
         lossfn = nn.CrossEntropyLoss(ignore_index=self.pad_token)
 
